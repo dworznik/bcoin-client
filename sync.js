@@ -1,3 +1,4 @@
+var _ = require('lodash');
 var fs = require('fs');
 var program = require('commander');
 var assert = require('assert');
@@ -30,6 +31,8 @@ program
     .option('-db, --database [path]', 'Enable database')
     .option('-t, --testnet', 'Use testnet')
     .option('-o, --output [path]', 'Chain output')
+    .option('-p --peer [address]', 'Dedicated peer')
+    .option('-s --size [size]', 'Pool size (default: 128)')
     .parse(process.argv);
 
 if (!program.output) {
@@ -44,23 +47,34 @@ if (program.testnet) {
     console.log('Using mainnet');
 }
 
-
 var pool;
+var size = 128;
+
+if (_.isNumber(program.size)) {
+    size = program.size;
+}
+
+var opts = {};
+
+if (program.peer) {
+    _.merge(opts, {
+        size: size,
+        ignoreAddr: true,
+        seeds: [program.peer]
+    });
+}
 
 if (program.db) {
     var levelup = require('levelup');
     var sqldown = require('sqldown');
-    pool = bcoin.pool({
-        size: 64,
+    pool = bcoin.pool(_.merge(opts, {
         storage: levelup(program.db, {
             db: sqldown,
             valueEncoding: 'json'
         })
-    });
+    }));
 } else {
-    pool = bcoin.pool({
-        size: 64
-    });
+    pool = bcoin.pool(opts);
 }
 
 pool.on('block', function(block) {
@@ -79,7 +93,7 @@ pool.on('peer', function(peer) {
         if (!peer.socket || !peer.socket.remoteAddress)
             return;
         return peer.socket.remoteAddress;
-    }).filter(Boolean );
+    }).filter(Boolean);
     console.log('Peer IPs: %s', ips);
 })
 
@@ -98,11 +112,14 @@ pool.on('chain-progress', function(progress) {
 pool.once('full', finish);
 process.once('SIGINT', finish);
 
-pool.on('headers', function(headers) {
+pool.on('headers', function(headers, peer) {
     for (var i = 0; i < headers.length; i++) {
-        console.log('Received header hash: %s', bcoin.utils.revHex(headers[i].hash));
+        console.log('Received header hash: %s from %s', bcoin.utils.revHex(headers[i].hash), peer.socket.remoteAddress);
     }
 });
+
+exports = pool;
+
 pool.startSync();
 
 var once = false;
